@@ -1,0 +1,5 @@
+,Variable,Danger zone,Bad batches,Clean batches
+0,LoadAmp,"[0.017, 0.018]","range [0.017, 0.599], mean 0.309, n=71","range [0.018, 0.540], mean 0.356, n=9"
+1,ACPower,"[487.976, 492.708]","range [450.484, 492.708], mean 473.718, n=71","range [451.896, 487.976], mean 470.941, n=9"
+2,Temp06,"[106.346, 112.331]","range [40.382, 112.331], mean 85.992, n=71","range [32.591, 111.101], mean 89.863, n=9"
+3,Galcurrent,"[62.328, 152.800]","range [0.548, 152.800], mean 43.701, n=71","range [6.945, 152.800], mean 41.788, n=9"
