@@ -1,7 +1,7 @@
 """
 CleanPlanet DAPL Fleet Risk Monitor
-Classic-firmware fleet view with per-unit drill-down.
-Run: python -m streamlit run cplan.py
+Classic-firmware (AC001 / always_clean) fleet view with per-unit drill-down.
+Run: python -m streamlit run fleet.py
 """
 
 import streamlit as st
@@ -18,8 +18,6 @@ BASE_HOST = "https://recycling.cleanplanetchemical.com"
 # ============================================================
 # CONFIG
 # ============================================================
-
-# 5 validated predictors with AUC-derived weights
 KEY_VARS = ["Transducer04", "Temp08", "Energy", "DAC1", "Feedback06"]
 
 VAR_AUC = {
@@ -29,7 +27,6 @@ VAR_AUC = {
     "Feedback06":   0.781,
     "DAC1":         0.768,
 }
-
 _raw_weights = {v: VAR_AUC[v] - 0.5 for v in KEY_VARS}
 _total = sum(_raw_weights.values())
 VAR_WEIGHTS = {v: round(_raw_weights[v] / _total, 3) for v in KEY_VARS}
@@ -43,13 +40,11 @@ VAR_LABELS = {
 }
 VAR_PRECISION = {"Transducer04": 1, "Temp08": 1, "Energy": 0, "DAC1": 1, "Feedback06": 1}
 
-# Risk tier thresholds (% weighted score)
 TIER_CRITICAL_MIN = 80
 TIER_WARNING_MIN = 60
 TIER_WATCH_MIN = 40
 
 CSV_PATH = "danger_ranges.csv"
-FLEET_CACHE_TTL = 300  # 5 minutes
 
 
 st.set_page_config(
@@ -59,9 +54,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
 # ============================================================
-# STYLING
+# STYLING (same as before — abbreviated marker)
 # ============================================================
 st.markdown("""
 <style>
@@ -80,7 +74,6 @@ st.markdown("""
 html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .block-container { padding-top: 2rem !important; padding-bottom: 4rem !important; max-width: 1500px; }
 
-/* HERO */
 .hero {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(6, 78, 59, 0.85) 100%);
     border: 1px solid rgba(16, 185, 129, 0.2);
@@ -125,7 +118,6 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 }
 .hero-badge-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; animation: pulseLED 1.8s infinite; }
 
-/* FLEET STATS */
 .stats-grid {
     display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 32px;
 }
@@ -143,7 +135,6 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .stat-value { color: #f1f5f9; font-size: 32px; font-weight: 900; font-family: 'JetBrains Mono', monospace; line-height: 1; }
 .stat-sub { color: rgba(148, 163, 184, 0.6); font-size: 11px; margin-top: 6px; }
 
-/* SECTION HEADERS */
 .tier-section { margin: 36px 0 16px 0; }
 .tier-header {
     display: flex; align-items: center; gap: 14px;
@@ -157,65 +148,54 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .tier-title { color: #f1f5f9; font-size: 18px; font-weight: 700; margin: 0; flex: 1; }
 .tier-count { color: rgba(226, 232, 240, 0.7); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
 
-/* UNIT CARDS */
 .unit-card {
     background: linear-gradient(180deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.6));
     border: 1px solid rgba(148, 163, 184, 0.12);
     border-radius: 18px; padding: 20px; height: 100%;
     transition: all 0.3s ease;
-    cursor: pointer;
     backdrop-filter: blur(10px);
 }
-.unit-card:hover { transform: translateY(-4px); border-color: rgba(16, 185, 129, 0.4); }
 .unit-card.critical { border-color: rgba(220, 38, 38, 0.4); }
 .unit-card.warning  { border-color: rgba(234, 88, 12, 0.4); }
 .unit-card.watch    { border-color: rgba(202, 138, 4, 0.4); }
 .unit-card.normal   { border-color: rgba(16, 185, 129, 0.3); }
 .unit-card.error    { border-color: rgba(148, 163, 184, 0.2); opacity: 0.7; }
 
-.unit-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-.unit-name { color: #f1f5f9; font-size: 17px; font-weight: 700; line-height: 1.2; }
-.unit-id { color: rgba(148, 163, 184, 0.7); font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
-.unit-company { color: rgba(203, 213, 225, 0.85); font-size: 12px; margin-top: 4px; }
+.unit-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 10px; }
+.unit-name { color: #f1f5f9; font-size: 16px; font-weight: 700; line-height: 1.2; }
+.unit-id { color: rgba(148, 163, 184, 0.7); font-size: 10px; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+.unit-company { color: rgba(203, 213, 225, 0.85); font-size: 11px; margin-top: 4px; }
 
 .risk-pill {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 8px 14px; border-radius: 100px;
-    font-size: 22px; font-weight: 900; font-family: 'JetBrains Mono', monospace;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 100px;
+    font-size: 18px; font-weight: 900; font-family: 'JetBrains Mono', monospace;
     color: white;
+    white-space: nowrap;
 }
 .risk-pill.critical { background: linear-gradient(135deg, #dc2626, #b91c1c); }
 .risk-pill.warning  { background: linear-gradient(135deg, #ea580c, #c2410c); }
 .risk-pill.watch    { background: linear-gradient(135deg, #ca8a04, #a16207); }
 .risk-pill.normal   { background: linear-gradient(135deg, #10b981, #047857); }
-.risk-pill.error    { background: rgba(148, 163, 184, 0.3); color: rgba(226, 232, 240, 0.7); }
+.risk-pill.error    { background: rgba(148, 163, 184, 0.3); color: rgba(226, 232, 240, 0.7); font-size: 13px; }
 
-.unit-divider { height: 1px; background: rgba(148, 163, 184, 0.1); margin: 14px 0; }
-
-.unit-indicators { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.unit-divider { height: 1px; background: rgba(148, 163, 184, 0.1); margin: 12px 0; }
+.unit-indicators { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
 .indicator-dot {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: 8px;
-    font-size: 12px; font-family: 'JetBrains Mono', monospace; font-weight: 700;
+    width: 28px; height: 28px; border-radius: 7px;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700;
 }
 .indicator-dot.in-danger { background: rgba(220, 38, 38, 0.25); color: #fca5a5; border: 1px solid rgba(220, 38, 38, 0.4); }
 .indicator-dot.safe { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
 .indicator-dot.no-data { background: rgba(148, 163, 184, 0.1); color: rgba(148, 163, 184, 0.5); border: 1px solid rgba(148, 163, 184, 0.15); }
 
-.unit-meta { color: rgba(148, 163, 184, 0.7); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
-.unit-error-msg { color: rgba(252, 165, 165, 0.8); font-size: 12px; font-style: italic; margin-top: 8px; }
-
-/* DETAIL PAGE */
-.detail-back-btn {
-    color: #6ee7b7; font-size: 13px; cursor: pointer; margin-bottom: 16px;
-    display: inline-flex; align-items: center; gap: 6px;
-}
-.detail-back-btn:hover { color: #34d399; }
+.unit-meta { color: rgba(148, 163, 184, 0.7); font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.unit-error-msg { color: rgba(252, 165, 165, 0.8); font-size: 11px; font-style: italic; margin-top: 6px; }
 
 .section-header { display: flex; align-items: center; gap: 14px; margin: 36px 0 18px 0; }
 .section-bar { width: 4px; height: 28px; background: linear-gradient(180deg, #10b981, #06b6d4); border-radius: 4px; }
 .section-title { color: #f1f5f9; font-size: 22px; font-weight: 700; margin: 0; }
-.section-caption { color: rgba(148, 163, 184, 0.8); font-size: 14px; margin: -12px 0 20px 18px; }
 
 .info-card {
     background: rgba(30, 41, 59, 0.5);
@@ -262,7 +242,6 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .badge-danger-d { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
 .badge-no-data-d { background: rgba(148, 163, 184, 0.15); color: rgba(148, 163, 184, 0.7); }
 
-/* PARETO */
 .pareto-row { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; padding: 12px 16px; background: rgba(30, 41, 59, 0.4); border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.1); }
 .pareto-icon { font-size: 22px; width: 32px; text-align: center; }
 .pareto-name { width: 150px; }
@@ -275,7 +254,6 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
 .pareto-weight { width: 70px; text-align: right; color: #38bdf8; font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 .pareto-value { width: 70px; text-align: right; color: #e2e8f0; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
-/* SIDEBAR */
 section[data-testid="stSidebar"] { background: #0a0e1a !important; border-right: 1px solid rgba(148, 163, 184, 0.08); }
 section[data-testid="stSidebar"] h3 { color: #f1f5f9 !important; font-size: 13px !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: 1.5px; font-family: 'JetBrains Mono', monospace; }
 section[data-testid="stSidebar"] label { color: rgba(226, 232, 240, 0.85) !important; font-size: 13px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 1px; }
@@ -286,21 +264,14 @@ section[data-testid="stSidebar"] .stButton button:hover { transform: translateY(
 section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] li, section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: rgba(203, 213, 225, 0.75) !important; font-size: 13px !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(148, 163, 184, 0.15) !important; }
 
-/* PROGRESS */
 .stProgress > div > div > div { background: linear-gradient(90deg, #10b981, #06b6d4) !important; }
-
-/* MAIN PAGE BUTTONS */
 .stButton button { border-radius: 10px !important; }
-
-/* ALERT */
 [data-testid="stAlert"] { background: rgba(30, 41, 59, 0.6) !important; border: 1px solid rgba(56, 189, 248, 0.3) !important; border-radius: 12px !important; color: #e2e8f0 !important; }
 .stSpinner > div { border-top-color: #10b981 !important; }
 .stSpinner > div + div { color: #e2e8f0 !important; }
 
-/* ANIMATIONS */
 @keyframes pulseLED { 0%, 100% { opacity: 1; box-shadow: 0 0 12px #10b981; } 50% { opacity: 0.6; box-shadow: 0 0 6px #10b981; } }
 @keyframes floatSlow { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(30px, -30px); } }
-@keyframes dangerPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } 50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); } }
 
 #MainMenu, footer, header { visibility: hidden; }
 </style>
@@ -308,7 +279,7 @@ section[data-testid="stSidebar"] hr { border-color: rgba(148, 163, 184, 0.15) !i
 
 
 # ============================================================
-# DANGER ZONE LOADER
+# DANGER ZONES
 # ============================================================
 def parse_range_string(s):
     if pd.isna(s) or not isinstance(s, str):
@@ -349,67 +320,57 @@ def get_token(email, password):
 
 
 def fetch_unit_list(token):
-    """Get all units the user has access to. Returns a list of unit IDs + basic info."""
+    """
+    Discover all units via /api/v1/units (returns 'units' + 'attention_units').
+    Deduplicates by ID and filters to:
+      - model == 'always_clean' (our product, not a_series)
+      - firmware_version starts with 'AC001' (classic firmware only)
+    """
     H = {"Authorization": f"Bearer {token}"}
-    r = requests.get(f"{BASE_HOST}/api/v1/notifications", headers=H, timeout=60)
+    r = requests.get(f"{BASE_HOST}/api/v1/units", headers=H, timeout=60)
     r.raise_for_status()
     data = r.json()
     
-    units = []
-    notifications = data.get("notifications", []) if isinstance(data, dict) else data
-    
-    # Notifications may have nested unit info
-    seen_ids = set()
-    for n in notifications:
-        if not isinstance(n, dict):
+    seen = {}  # id -> unit dict
+    for key in ("units", "attention_units"):
+        items = data.get(key, [])
+        if not isinstance(items, list):
             continue
-        unit_info = n.get("unit") or {}
-        unit_id = unit_info.get("id") or n.get("unit_id")
-        if unit_id and unit_id not in seen_ids:
-            seen_ids.add(unit_id)
-            units.append({
-                "id": unit_id,
-                "name": unit_info.get("name", f"Unit_{unit_id}"),
-                "company": unit_info.get("c_name", "Unknown"),
-                "facility": unit_info.get("f_name", ""),
-            })
+        for u in items:
+            if not isinstance(u, dict):
+                continue
+            uid = u.get("id")
+            if uid is None:
+                continue
+            if uid not in seen:
+                seen[uid] = u
     
-    return units
-
-
-def fetch_unit_metadata(unit_id, token):
-    """Get full unit metadata to check firmware version."""
-    H = {"Authorization": f"Bearer {token}"}
-    r = requests.get(f"{BASE_HOST}/api/v1/units/{unit_id}", headers=H, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    unit = data.get("unit") or {}
-    configs = data.get("configurations") or []
-    config = configs[0] if configs else {}
+    classic_units = []
+    for uid, u in seen.items():
+        model = u.get("model", "") or ""
+        fw = u.get("firmware_version") or ""
+        
+        # Filter: only always_clean classic firmware
+        if model != "always_clean":
+            continue
+        if not isinstance(fw, str) or not fw.startswith("AC001"):
+            continue
+        
+        classic_units.append({
+            "id": uid,
+            "name": u.get("name") or f"Unit_{uid}",
+            "company": u.get("c_name") or "Unknown",
+            "facility": u.get("f_name") or "",
+            "firmware_version": fw,
+            "model": model,
+            "material": u.get("material") or "Unknown",
+            "comm_status": u.get("comm_status") or "unknown",
+            "last_data_timestamp": u.get("last_data_timestamp") or "",
+            "is_idle": u.get("is_idle", 0),
+            "color": u.get("color") or "",
+        })
     
-    return {
-        "id": unit_id,
-        "name": unit.get("name", f"Unit_{unit_id}"),
-        "company": unit.get("c_name", "Unknown"),
-        "facility": unit.get("f_name", ""),
-        "firmware_version": unit.get("firmware_version", ""),
-        "packet_version": unit.get("packet_version"),
-        "material": config.get("material", "Unknown"),
-        "galmax": config.get("galmax"),
-        "last_data_timestamp": unit.get("last_data_timestamp"),
-    }
-
-
-def is_classic_firmware(metadata):
-    """Classic firmware = packet_version 5, AC001 series."""
-    pv = metadata.get("packet_version")
-    if pv == 5:
-        return True
-    if pv == 6:
-        return False
-    # Fallback: check firmware string
-    fv = (metadata.get("firmware_version") or "")
-    return fv.startswith("AC001")
+    return classic_units
 
 
 def fetch_latest_sensor_values(unit_id, token):
@@ -422,15 +383,15 @@ def fetch_latest_sensor_values(unit_id, token):
     r.raise_for_status()
     
     if len(r.text.strip()) == 0:
-        raise ValueError("No data in last 24h (unit may be offline)")
+        raise ValueError("No data in last 24h")
     
     try:
         df = pd.read_csv(StringIO(r.text), on_bad_lines="skip")
     except pd.errors.EmptyDataError:
-        raise ValueError("No data in last 24h")
+        raise ValueError("Empty data")
     
-    if len(df) == 0:
-        raise ValueError("Empty data file")
+    if len(df) == 0 or "cctimestamp" not in df.columns:
+        raise ValueError("No valid rows")
     
     df = df.sort_values("cctimestamp")
     latest = df.iloc[-1]
@@ -458,6 +419,17 @@ def fetch_latest_sensor_values(unit_id, token):
         "n_recent_rows": len(recent),
         "n_total_rows_24h": len(df),
     }
+
+
+def fetch_unit_extra(unit_id, token):
+    """Get galmax and material for detail view."""
+    H = {"Authorization": f"Bearer {token}"}
+    r = requests.get(f"{BASE_HOST}/api/v1/units/{unit_id}", headers=H, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    configs = data.get("configurations") or []
+    config = configs[0] if configs else {}
+    return {"galmax": config.get("galmax"), "material": config.get("material", "Unknown")}
 
 
 # ============================================================
@@ -490,45 +462,31 @@ def score_risk_weighted(values, zones):
     pct = normalized * 100
     
     if pct >= TIER_CRITICAL_MIN:
-        tier = "critical"
-        tier_label = "Critical"
+        tier, tier_label = "critical", "Critical"
         gradient = "linear-gradient(135deg, #7f1d1d 0%, #b91c1c 50%, #dc2626 100%)"
-        emoji = "⛔"
-        desc = "Multiple strong predictors elevated — consider immediate DC drain"
+        emoji, desc = "⛔", "Multiple strong predictors elevated — consider immediate DC drain"
     elif pct >= TIER_WARNING_MIN:
-        tier = "warning"
-        tier_label = "Warning"
+        tier, tier_label = "warning", "Warning"
         gradient = "linear-gradient(135deg, #7c2d12 0%, #ea580c 100%)"
-        emoji = "⚠"
-        desc = "Strong predictors triggering — operator attention recommended"
+        emoji, desc = "⚠", "Strong predictors triggering — operator attention recommended"
     elif pct >= TIER_WATCH_MIN:
-        tier = "watch"
-        tier_label = "Watch"
+        tier, tier_label = "watch", "Watch"
         gradient = "linear-gradient(135deg, #713f12 0%, #ca8a04 100%)"
-        emoji = "◑"
-        desc = "Mild indicators present — monitor closely"
+        emoji, desc = "◑", "Mild indicators present — monitor closely"
     else:
-        tier = "normal"
-        tier_label = "Normal"
+        tier, tier_label = "normal", "Normal"
         gradient = "linear-gradient(135deg, #064e3b 0%, #047857 50%, #059669 100%)"
-        emoji = "✓"
-        desc = "All systems normal — no action needed"
+        emoji, desc = "✓", "All systems normal — no action needed"
     
     n_in_danger = sum(1 for v in per_var.values() if v["status"] == "in_danger")
     n_total = sum(1 for v in per_var.values() if v["status"] != "no_data")
     
     return {
-        "per_var": per_var,
-        "weighted_score": weighted_score,
-        "max_possible_score": max_possible_score,
-        "percentage": pct,
-        "tier": tier,
-        "tier_label": tier_label,
-        "gradient": gradient,
-        "emoji": emoji,
-        "description": desc,
-        "n_in_danger": n_in_danger,
-        "n_total": n_total,
+        "per_var": per_var, "weighted_score": weighted_score,
+        "max_possible_score": max_possible_score, "percentage": pct,
+        "tier": tier, "tier_label": tier_label, "gradient": gradient,
+        "emoji": emoji, "description": desc,
+        "n_in_danger": n_in_danger, "n_total": n_total,
     }
 
 
@@ -571,10 +529,10 @@ with st.sidebar:
     st.markdown("### 📊 SCOPE")
     st.markdown("""
 **Classic firmware only**
-Packet version 5 / AC001 series  
-~74 units in scope
+- always_clean model
+- AC001 firmware series
 
-**Excluded:** Newer firmware units (model not yet calibrated)
+**Excluded:** Newer firmware (AC350), a_series, dev/test units
     """)
     
     st.markdown("---")
@@ -590,16 +548,16 @@ except FileNotFoundError:
 
 
 # ============================================================
-# FLEET LOADER (with progress)
+# FLEET LOADER
 # ============================================================
 def load_fleet(token):
-    """Discover all units, filter to classic, compute risk for each. Shows progress."""
+    """Discover and risk-score the classic-firmware always_clean fleet."""
     st.markdown("""
     <div class="hero">
         <div class="hero-content">
             <div class="hero-logo">⬢</div>
             <h1 class="hero-title">Loading fleet…</h1>
-            <p class="hero-subtitle">Discovering units, filtering to classic firmware, fetching live sensor readings.</p>
+            <p class="hero-subtitle">Discovering classic-firmware always_clean units and fetching live sensor readings.</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -607,77 +565,50 @@ def load_fleet(token):
     progress_text = st.empty()
     progress_bar = st.progress(0)
     
-    # Step 1: get unit list
-    progress_text.text("Step 1/3: Discovering accessible units...")
+    progress_text.text("Step 1/2: Discovering classic-firmware units…")
     try:
-        units = fetch_unit_list(token)
+        classic_units = fetch_unit_list(token)
     except Exception as e:
         st.error(f"Failed to list units: {e}")
         st.stop()
     
-    if not units:
-        st.error("No units found in your account.")
-        st.stop()
-    
-    progress_text.text(f"Step 2/3: Filtering {len(units)} units by firmware version...")
-    
-    # Step 2: check firmware for each
-    classic_units = []
-    for i, u in enumerate(units):
-        try:
-            meta = fetch_unit_metadata(u["id"], token)
-            if is_classic_firmware(meta):
-                classic_units.append(meta)
-        except Exception as e:
-            pass  # skip units we can't access
-        progress_bar.progress((i + 1) / len(units) * 0.3)
-        time.sleep(0.1)  # gentle throttling
-    
     if not classic_units:
-        st.error("No classic firmware units found. The dashboard only supports classic firmware.")
+        st.error("No classic-firmware always_clean units found.")
         st.stop()
     
-    # Step 3: fetch sensor data + compute risk for each classic unit
-    progress_text.text(f"Step 3/3: Fetching live sensor data for {len(classic_units)} classic units...")
+    progress_text.text(f"Step 2/2: Fetching live data for {len(classic_units)} units…")
     
     fleet_results = []
     for i, meta in enumerate(classic_units):
-        result = {
-            "unit_id": meta["id"],
-            "name": meta["name"],
-            "company": meta["company"],
-            "facility": meta["facility"],
-            "firmware_version": meta["firmware_version"],
-            "material": meta["material"],
-            "galmax": meta["galmax"],
-            "last_data_timestamp": meta["last_data_timestamp"],
-        }
+        result = dict(meta)
+        result["unit_id"] = meta["id"]
         
         try:
             sensor_data = fetch_latest_sensor_values(meta["id"], token)
             risk = score_risk_weighted(sensor_data["values"], zones)
             result["status"] = "ok"
-            result["percentage"] = risk["percentage"]
-            result["tier"] = risk["tier"]
-            result["tier_label"] = risk["tier_label"]
-            result["n_in_danger"] = risk["n_in_danger"]
-            result["n_total"] = risk["n_total"]
-            result["per_var"] = risk["per_var"]
-            result["sensor_values"] = sensor_data["values"]
-            result["latest_timestamp"] = sensor_data["latest_timestamp"]
+            result.update({
+                "percentage": risk["percentage"],
+                "tier": risk["tier"],
+                "tier_label": risk["tier_label"],
+                "n_in_danger": risk["n_in_danger"],
+                "n_total": risk["n_total"],
+                "per_var": risk["per_var"],
+                "sensor_values": sensor_data["values"],
+                "latest_timestamp": sensor_data["latest_timestamp"],
+            })
         except Exception as e:
             result["status"] = "error"
-            result["error_msg"] = str(e)[:100]
+            result["error_msg"] = str(e)[:80]
             result["percentage"] = None
             result["tier"] = "error"
         
         fleet_results.append(result)
-        progress_bar.progress(0.3 + (i + 1) / len(classic_units) * 0.7)
-        time.sleep(0.3)  # rate limiting
+        progress_bar.progress((i + 1) / len(classic_units))
+        time.sleep(0.25)
     
     progress_bar.empty()
     progress_text.empty()
-    
     return fleet_results
 
 
@@ -685,28 +616,25 @@ def load_fleet(token):
 # PAGE: FLEET VIEW
 # ============================================================
 def render_fleet_view(fleet_data):
-    # Compute fleet stats
     total = len(fleet_data)
     by_tier = {"critical": 0, "warning": 0, "watch": 0, "normal": 0, "error": 0}
     for r in fleet_data:
         by_tier[r.get("tier", "error")] = by_tier.get(r.get("tier", "error"), 0) + 1
     
-    # HERO
     st.markdown(f"""
     <div class="hero">
         <div class="hero-content">
             <div class="hero-logo">⬢</div>
             <h1 class="hero-title">CleanPlanet<br><span class="hero-gradient-text">Fleet Monitor</span></h1>
             <p class="hero-subtitle">
-                Live DC drain risk monitoring across the classic-firmware fleet. Risk computed from
-                the validated 5-sensor weighted model.
+                Live DC drain risk monitoring across the classic-firmware always_clean fleet.
+                Risk computed from the validated 5-sensor weighted model.
             </p>
             <span class="hero-badge"><span class="hero-badge-dot"></span>CLASSIC FIRMWARE · {total} UNITS</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # FLEET STATS
     st.markdown(f"""
     <div class="stats-grid">
         <div class="stat-card critical">
@@ -737,10 +665,8 @@ def render_fleet_view(fleet_data):
     </div>
     """, unsafe_allow_html=True)
     
-    # Sort within tiers
-    sorted_fleet = sorted(fleet_data, key=lambda r: -(r.get("percentage") or -1))
+    sorted_fleet = sorted(fleet_data, key=lambda r: -(r.get("percentage") if r.get("percentage") is not None else -1))
     
-    # Group by tier
     tier_order = ["critical", "warning", "watch", "normal", "error"]
     tier_names = {
         "critical": "🚨 Critical Risk",
@@ -754,7 +680,6 @@ def render_fleet_view(fleet_data):
     for r in sorted_fleet:
         by_tier_lists.get(r.get("tier", "error"), by_tier_lists["error"]).append(r)
     
-    # Render each tier section
     for tier in tier_order:
         units = by_tier_lists[tier]
         if not units:
@@ -769,7 +694,6 @@ def render_fleet_view(fleet_data):
         </div>
         """, unsafe_allow_html=True)
         
-        # 4-column grid
         cols_per_row = 4
         for row_start in range(0, len(units), cols_per_row):
             cols = st.columns(cols_per_row)
@@ -777,18 +701,15 @@ def render_fleet_view(fleet_data):
                 idx = row_start + i
                 if idx >= len(units):
                     break
-                
-                unit = units[idx]
                 with col:
-                    render_unit_card(unit)
+                    render_unit_card(units[idx])
 
 
 def render_unit_card(unit):
     tier = unit.get("tier", "error")
     pct = unit.get("percentage")
-    pct_str = f"{pct:.0f}%" if pct is not None else "—"
+    pct_str = f"{pct:.0f}%" if pct is not None else "OFF"
     
-    # Indicator dots
     if unit.get("per_var"):
         dots_html = '<div class="unit-indicators">'
         for var in KEY_VARS:
@@ -796,29 +717,30 @@ def render_unit_card(unit):
             status = info.get("status", "no_data")
             meta = VAR_LABELS[var]
             cls = "in-danger" if status == "in_danger" else ("safe" if status == "safe" else "no-data")
-            dots_html += f'<div class="indicator-dot {cls}" title="{meta["label"]}: {status}">{meta["icon"]}</div>'
+            dots_html += f'<div class="indicator-dot {cls}" title="{meta["label"]}">{meta["icon"]}</div>'
         dots_html += '</div>'
     else:
         dots_html = ""
     
-    # Card body
     if unit["status"] == "error":
-        body = f'<div class="unit-error-msg">⚠ {unit.get("error_msg", "Unknown error")}</div>'
+        body = f'<div class="unit-error-msg">⚠ {unit.get("error_msg", "Unknown")}</div>'
     else:
         body = f"""
             {dots_html}
-            <div class="unit-meta">
-                {unit.get("n_in_danger", 0)}/{unit.get("n_total", 0)} indicators in danger
-            </div>
+            <div class="unit-meta">{unit.get("n_in_danger", 0)}/{unit.get("n_total", 0)} in danger</div>
         """
+    
+    company = unit.get("company", "") or "Unknown"
+    if len(company) > 28:
+        company = company[:25] + "..."
     
     st.markdown(f"""
     <div class="unit-card {tier}">
         <div class="unit-header">
-            <div>
+            <div style="flex: 1; min-width: 0;">
                 <div class="unit-name">{unit['name']}</div>
                 <div class="unit-id">ID {unit['unit_id']}</div>
-                <div class="unit-company">{unit['company']}</div>
+                <div class="unit-company">{company}</div>
             </div>
             <div class="risk-pill {tier}">{pct_str}</div>
         </div>
@@ -827,7 +749,6 @@ def render_unit_card(unit):
     </div>
     """, unsafe_allow_html=True)
     
-    # Drill-down button (Streamlit native, below the visual card)
     if st.button(f"Open →", key=f"open_{unit['unit_id']}", use_container_width=True):
         st.session_state.page = "detail"
         st.session_state.selected_unit_id = unit["unit_id"]
@@ -838,65 +759,53 @@ def render_unit_card(unit):
 # PAGE: UNIT DETAIL
 # ============================================================
 def render_unit_detail(unit_id, token):
-    # Back button
     if st.button("← Back to Fleet"):
         st.session_state.page = "fleet"
         st.session_state.selected_unit_id = None
         st.rerun()
     
-    # Find the unit in fleet data
     unit = next((u for u in (st.session_state.fleet_data or []) if u["unit_id"] == unit_id), None)
-    
     if not unit:
-        # Fetch fresh
-        try:
-            meta = fetch_unit_metadata(unit_id, token)
-            sensor_data = fetch_latest_sensor_values(unit_id, token)
-            risk = score_risk_weighted(sensor_data["values"], zones)
-            unit = {
-                **meta, "unit_id": unit_id,
-                **{k: risk[k] for k in ["percentage", "tier", "tier_label", "gradient", "emoji",
-                                         "description", "n_in_danger", "n_total", "per_var"]},
-                "sensor_values": sensor_data["values"],
-                "latest_timestamp": sensor_data["latest_timestamp"],
-                "status": "ok",
-            }
-        except Exception as e:
-            st.error(f"Couldn't load unit {unit_id}: {e}")
-            return
+        st.error(f"Unit {unit_id} not found in fleet data. Try refreshing.")
+        return
     
-    # Re-fetch live data if drilling in (so the detail view is fresh)
+    # Refresh sensor data live
     if unit["status"] != "error":
         try:
             sensor_data = fetch_latest_sensor_values(unit_id, token)
             risk = score_risk_weighted(sensor_data["values"], zones)
-            unit.update({k: risk[k] for k in ["percentage", "tier", "tier_label", "gradient", "emoji",
-                                               "description", "n_in_danger", "n_total", "per_var"]})
-            unit["sensor_values"] = sensor_data["values"]
-            unit["latest_timestamp"] = sensor_data["latest_timestamp"]
-            unit["n_total_rows_24h"] = sensor_data.get("n_total_rows_24h", 0)
-            unit["n_recent_rows"] = sensor_data.get("n_recent_rows", 0)
+            unit.update({
+                "percentage": risk["percentage"], "tier": risk["tier"],
+                "tier_label": risk["tier_label"], "gradient": risk["gradient"],
+                "emoji": risk["emoji"], "description": risk["description"],
+                "n_in_danger": risk["n_in_danger"], "n_total": risk["n_total"],
+                "per_var": risk["per_var"], "sensor_values": sensor_data["values"],
+                "latest_timestamp": sensor_data["latest_timestamp"],
+            })
         except Exception as e:
-            st.warning(f"Couldn't refresh live data: {e}")
+            st.warning(f"Couldn't refresh: {e}")
     
     if unit["status"] == "error":
-        st.error(f"Unit {unit_id} is offline or unreachable: {unit.get('error_msg', 'unknown')}")
+        st.error(f"Unit {unit_id} is offline: {unit.get('error_msg', 'unknown')}")
         return
     
-    # Header
+    # Get extra metadata (galmax)
+    try:
+        extra = fetch_unit_extra(unit_id, token)
+        unit.update(extra)
+    except:
+        pass
+    
     st.markdown(f"""
     <div class="hero" style="padding: 36px;">
         <div class="hero-content">
             <div class="hero-logo">⬢</div>
             <h1 class="hero-title" style="font-size: 36px;">{unit['name']}</h1>
-            <p class="hero-subtitle">
-                {unit['company']} · {unit.get('facility', '')} · Unit ID {unit_id}
-            </p>
+            <p class="hero-subtitle">{unit.get('company', '')} · {unit.get('facility', '')} · Unit ID {unit_id}</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Unit info cards
     info_cols = st.columns(4)
     info_cols[0].markdown(f"""
     <div class="info-card">
@@ -907,7 +816,7 @@ def render_unit_detail(unit_id, token):
     info_cols[1].markdown(f"""
     <div class="info-card">
         <div class="info-label">Firmware</div>
-        <div class="info-value" style="font-size:14px;">{unit.get('firmware_version', 'Unknown')[:20]}</div>
+        <div class="info-value" style="font-size:13px;">{unit.get('firmware_version', 'Unknown')[:22]}</div>
     </div>
     """, unsafe_allow_html=True)
     info_cols[2].markdown(f"""
@@ -930,7 +839,6 @@ def render_unit_detail(unit_id, token):
     </div>
     """, unsafe_allow_html=True)
     
-    # RISK HERO
     st.markdown('<div class="section-header"><div class="section-bar"></div><h2 class="section-title">Risk Assessment</h2></div>', unsafe_allow_html=True)
     
     st.markdown(f"""
@@ -943,7 +851,6 @@ def render_unit_detail(unit_id, token):
     </div>
     """, unsafe_allow_html=True)
     
-    # PARETO
     st.markdown('<div class="section-header"><div class="section-bar"></div><h2 class="section-title">Risk Contribution (Pareto)</h2></div>', unsafe_allow_html=True)
     
     sorted_vars = sorted(KEY_VARS, key=lambda v: VAR_WEIGHTS.get(v, 0), reverse=True)
@@ -958,7 +865,7 @@ def render_unit_detail(unit_id, token):
         
         bar_pct = (weight / max_w) * 100
         if not is_contributing:
-            bar_pct = bar_pct * 0.25  # faded
+            bar_pct = bar_pct * 0.25
         
         bar_class = "contributing" if is_contributing else "not-contributing"
         contribution_text = f"+{contribution:.2f}" if is_contributing else "0.00"
@@ -978,7 +885,6 @@ def render_unit_detail(unit_id, token):
         </div>
         """, unsafe_allow_html=True)
     
-    # SENSOR BREAKDOWN
     st.markdown('<div class="section-header"><div class="section-bar"></div><h2 class="section-title">Sensor Breakdown</h2></div>', unsafe_allow_html=True)
     
     var_cols = st.columns(len(KEY_VARS))
@@ -987,7 +893,6 @@ def render_unit_detail(unit_id, token):
         val = info["value"]
         z = info["zone"]
         meta = VAR_LABELS[var]
-        weight = VAR_WEIGHTS.get(var, 0)
         
         with var_cols[i]:
             if info["status"] == "no_data":
@@ -1002,8 +907,8 @@ def render_unit_detail(unit_id, token):
                 """, unsafe_allow_html=True)
             else:
                 val_str = fmt(val, var)
-                lo_str = fmt(z["low"], var)
-                hi_str = fmt(z["high"], var)
+                lo_str = fmt(z["low"], var) if z else "?"
+                hi_str = fmt(z["high"], var) if z else "?"
                 
                 if info["status"] == "in_danger":
                     st.markdown(f"""
@@ -1050,14 +955,12 @@ except Exception as e:
     st.error(f"Login failed: {e}")
     st.stop()
 
-# Load or refresh fleet data
 if refresh_button or st.session_state.fleet_data is None:
-    with st.spinner("Loading fleet..."):
+    with st.spinner("Loading fleet…"):
         st.session_state.fleet_data = load_fleet(token)
         st.session_state.fleet_loaded_at = datetime.now(timezone.utc)
     st.rerun()
 
-# Route
 if st.session_state.page == "fleet":
     render_fleet_view(st.session_state.fleet_data)
 elif st.session_state.page == "detail":
