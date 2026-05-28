@@ -185,7 +185,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
     display: inline-flex; align-items: center; justify-content: center;
     width: 28px; height: 28px; border-radius: 7px;
     font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700;
-}
+    vertical-align: middle;
+}   
 .indicator-dot.in-danger { background: rgba(220, 38, 38, 0.25); color: #fca5a5; border: 1px solid rgba(220, 38, 38, 0.4); }
 .indicator-dot.safe { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
 .indicator-dot.no-data { background: rgba(148, 163, 184, 0.1); color: rgba(148, 163, 184, 0.5); border: 1px solid rgba(148, 163, 184, 0.15); }
@@ -321,17 +322,27 @@ def get_token(email, password):
 
 def fetch_unit_list(token):
     """
-    Discover all units via /api/v1/units (returns 'units' + 'attention_units').
-    Deduplicates by ID and filters to:
-      - model == 'always_clean' (our product, not a_series)
-      - firmware_version starts with 'AC001' (classic firmware only)
+    Discover production classic-firmware always_clean units.
+    Filters:
+      - model == 'always_clean'
+      - firmware_version starts with 'AC001'
+      - Excludes dev/test/obsolete units by name pattern
+      - Excludes units with no recent data
     """
     H = {"Authorization": f"Bearer {token}"}
     r = requests.get(f"{BASE_HOST}/api/v1/units", headers=H, timeout=60)
     r.raise_for_status()
     data = r.json()
     
-    seen = {}  # id -> unit dict
+    # Patterns that indicate non-production units
+    EXCLUDE_NAME_PATTERNS = [
+        "test", "testing", "dev_", "dev ", "simulator", "sim_",
+        "obsolete", "bluetooth", "engineering", "not working",
+        "electronic", "spare", "demo", "scrap", "decommiss",
+        "broken", "trash", "junk", "removed",
+    ]
+    
+    seen = {}
     for key in ("units", "attention_units"):
         items = data.get(key, [])
         if not isinstance(items, list):
@@ -349,11 +360,23 @@ def fetch_unit_list(token):
     for uid, u in seen.items():
         model = u.get("model", "") or ""
         fw = u.get("firmware_version") or ""
+        name = (u.get("name") or "").lower()
         
-        # Filter: only always_clean classic firmware
+        # Filter 1: Must be always_clean production model
         if model != "always_clean":
             continue
+        
+        # Filter 2: Must be classic AC001 firmware
         if not isinstance(fw, str) or not fw.startswith("AC001"):
+            continue
+        
+        # Filter 3: Skip dev/test/obsolete by name
+        if any(pat in name for pat in EXCLUDE_NAME_PATTERNS):
+            continue
+        
+        # Filter 4: Skip units with weird firmware versions (non-prod builds)
+        # Production firmware is AC001V-Rxx.Fx.xx; dev firmware is AC001V-Txx
+        if fw.startswith("AC001V-T"):  # T = test build
             continue
         
         classic_units.append({
@@ -710,44 +733,47 @@ def render_unit_card(unit):
     pct = unit.get("percentage")
     pct_str = f"{pct:.0f}%" if pct is not None else "OFF"
     
+    # Build indicator dots HTML
+    dots_html = ""
     if unit.get("per_var"):
-        dots_html = '<div class="unit-indicators">'
+        dot_pieces = []
         for var in KEY_VARS:
             info = unit["per_var"].get(var, {})
             status = info.get("status", "no_data")
             meta = VAR_LABELS[var]
             cls = "in-danger" if status == "in_danger" else ("safe" if status == "safe" else "no-data")
-            dots_html += f'<div class="indicator-dot {cls}" title="{meta["label"]}">{meta["icon"]}</div>'
-        dots_html += '</div>'
-    else:
-        dots_html = ""
+            dot_pieces.append(f'<span class="indicator-dot {cls}">{meta["icon"]}</span>')
+        dots_html = f'<div class="unit-indicators">{"".join(dot_pieces)}</div>'
     
+    # Build body
     if unit["status"] == "error":
-        body = f'<div class="unit-error-msg">⚠ {unit.get("error_msg", "Unknown")}</div>'
+        body_html = f'<div class="unit-error-msg">⚠ {unit.get("error_msg", "Unknown")}</div>'
     else:
-        body = f"""
-            {dots_html}
-            <div class="unit-meta">{unit.get("n_in_danger", 0)}/{unit.get("n_total", 0)} in danger</div>
-        """
+        meta_text = f'{unit.get("n_in_danger", 0)}/{unit.get("n_total", 0)} in danger'
+        body_html = f'{dots_html}<div class="unit-meta">{meta_text}</div>'
     
+    # Truncate company name
     company = unit.get("company", "") or "Unknown"
     if len(company) > 28:
         company = company[:25] + "..."
     
-    st.markdown(f"""
-    <div class="unit-card {tier}">
-        <div class="unit-header">
-            <div style="flex: 1; min-width: 0;">
-                <div class="unit-name">{unit['name']}</div>
-                <div class="unit-id">ID {unit['unit_id']}</div>
-                <div class="unit-company">{company}</div>
-            </div>
-            <div class="risk-pill {tier}">{pct_str}</div>
-        </div>
-        <div class="unit-divider"></div>
-        {body}
-    </div>
-    """, unsafe_allow_html=True)
+    # Build full card as ONE string, no nesting
+    card_html = (
+        f'<div class="unit-card {tier}">'
+        f'<div class="unit-header">'
+        f'<div style="flex: 1; min-width: 0;">'
+        f'<div class="unit-name">{unit["name"]}</div>'
+        f'<div class="unit-id">ID {unit["unit_id"]}</div>'
+        f'<div class="unit-company">{company}</div>'
+        f'</div>'
+        f'<div class="risk-pill {tier}">{pct_str}</div>'
+        f'</div>'
+        f'<div class="unit-divider"></div>'
+        f'{body_html}'
+        f'</div>'
+    )
+    
+    st.markdown(card_html, unsafe_allow_html=True)
     
     if st.button(f"Open →", key=f"open_{unit['unit_id']}", use_container_width=True):
         st.session_state.page = "detail"
