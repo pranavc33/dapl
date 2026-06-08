@@ -124,24 +124,6 @@ Open that URL in a browser.
 
 If a unit has been offline, it may return no recent data; the app will tell you
 and suggest trying one of the units above.
-
----
-
-## Credentials and security
-
-**Do not commit real passwords to the repository.** The login is entered at
-runtime in the sidebar, so no credentials need to be stored in the code.
-
-If you adapt the code to read credentials automatically, use environment
-variables rather than hardcoding them, for example:
-
-```bash
-export CP_EMAIL="you@example.com"
-export CP_PASSWORD="your_password"
-```
-
-and read them in Python with `os.environ.get("CP_EMAIL")`.
-
 ---
 
 ## Deploying to Streamlit Community Cloud (optional)
@@ -152,19 +134,6 @@ and read them in Python with `os.environ.get("CP_EMAIL")`.
 3. Make sure `requirements.txt` lists: `streamlit`, `pandas`, `numpy`,
    `requests`, `plotly`.
 4. Deploy. The app will be served at a public `*.streamlit.app` URL.
-
----
-
-## Troubleshooting
-
-- **"Couldn't find danger_ranges.csv"** — the CSV is not in the same folder as
-  the app file. Move it there, or run the app from the folder that contains both.
-- **Login fails** — confirm the email and password are correct and that the API
-  host is reachable from your network.
-- **"Unit returned empty data"** — that unit has no recent telemetry; try 129,
-  201, or 132.
-- **Blank or very slow page** — the trend/slope version pulls several hours of
-  data per unit, which is heavier than the static version; allow extra time.
 
 ---
 
@@ -212,7 +181,7 @@ Set one value (the target error code) and the script runs the whole pipeline:
    ```
 
 4. Set API credentials via the same environment variables as above
-   (`CP_EMAIL`, `CP_PASSWORD`), then run the script. It prints the offender ranking,
+   (`EMAIL`, `PASSWORD`), then run the script. It prints the offender ranking,
    the four-test screening table, the selected model, the threshold sweep, and the
    control check.
 
