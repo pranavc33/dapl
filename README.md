@@ -1,0 +1,148 @@
+# CleanPlanet Code 215 Risk Monitor
+
+A Streamlit dashboard that pulls live sensor telemetry from the CleanPlanet API,
+computes a weighted risk score for each unit, and displays it with a per-variable
+breakdown and a Pareto contribution chart.
+
+---
+
+## What it does
+
+For a given unit, the app:
+
+1. Authenticates against the CleanPlanet API with an email + password.
+2. Pulls recent high-resolution telemetry for that unit.
+3. Computes the risk model's input features (sensor values, or sensor *trends*
+   if the slope version is enabled).
+4. Checks each feature against its calibrated danger zone, sums the weights of
+   the features in danger, and shows a 0-100% risk score with risk tiers.
+5. Renders a Pareto chart of each variable's predictive weight and a step-by-step
+   explainer of how the model was built.
+
+---
+
+## Requirements
+
+- Python 3.9 or newer
+- A CleanPlanet API login (email + password)
+- Internet access to `https://recycling.cleanplanetchemical.com`
+
+Python packages:
+
+- streamlit
+- pandas
+- numpy
+- requests
+- plotly
+
+---
+
+## Setup on a new machine
+
+### 1. Get the code
+
+Clone the repository (or copy the project folder):
+
+```bash
+git clone https://github.com/pranavc33/dapl.git
+cd dapl
+```
+
+### 2. Create a virtual environment (recommended)
+
+**macOS / Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+**Windows (PowerShell):**
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+```
+
+### 3. Install dependencies
+
+If a `requirements.txt` is present:
+```bash
+pip install -r requirements.txt
+```
+
+Otherwise install directly:
+```bash
+pip install streamlit pandas numpy requests plotly
+```
+
+### 4. Make sure the data file is present
+
+The app reads calibrated danger zones from `danger_ranges.csv`, which must be in
+the same folder as the app file. Confirm it is there:
+
+```bash
+ls danger_ranges.csv
+```
+
+
+## Running the app
+
+From the project folder, with the virtual environment active:
+
+```bash
+python -m streamlit run app.py
+```
+
+(Replace `app.py` with the actual filename if it differs, e.g. `cplan.py`.)
+
+Streamlit will start a local server and print a URL, usually:
+
+```
+Local URL: http://localhost:8501
+```
+
+Open that URL in a browser.
+
+---
+
+## Using the app
+
+1. In the left sidebar, enter your CleanPlanet **email** and **password**.
+2. Enter a **Unit ID** to check.
+3. Click **CHECK RISK**.
+
+**Units known to have data (good for testing):**
+- `129` — St. Johns Packaging
+- `201` — RPM Wood Finishes
+- `132` — Packaging Products Corp (healthy control)
+
+If a unit has been offline, it may return no recent data; the app will tell you
+and suggest trying one of the units above.
+
+---
+
+## Credentials and security
+
+**Do not commit real passwords to the repository.** The login is entered at
+runtime in the sidebar, so no credentials need to be stored in the code.
+
+If you adapt the code to read credentials automatically, use environment
+variables rather than hardcoding them, for example:
+
+```bash
+export CP_EMAIL="you@example.com"
+export CP_PASSWORD="your_password"
+```
+
+and read them in Python with `os.environ.get("CP_EMAIL")`.
+
+---
+
+## Deploying to Streamlit Community Cloud (optional)
+
+1. Push the repository to GitHub.
+2. At https://share.streamlit.io, create a new app pointing at the repo and the
+   main app file.
+3. Make sure `requirements.txt` lists: `streamlit`, `pandas`, `numpy`,
+   `requests`, `plotly`.
+4. Deploy. The app will be served at a public `*.streamlit.app` URL.
+
