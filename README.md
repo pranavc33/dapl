@@ -120,24 +120,8 @@ and suggest trying one of the units above.
 
 ---
 
-## Credentials and security
 
-**Do not commit real passwords to the repository.** The login is entered at
-runtime in the sidebar, so no credentials need to be stored in the code.
-
-If you adapt the code to read credentials automatically, use environment
-variables rather than hardcoding them, for example:
-
-```bash
-export CP_EMAIL="you@example.com"
-export CP_PASSWORD="your_password"
-```
-
-and read them in Python with `os.environ.get("CP_EMAIL")`.
-
----
-
-## Deploying to Streamlit Community Cloud (optional)
+## Deploying to Streamlit Community Cloud 
 
 1. Push the repository to GitHub.
 2. At https://share.streamlit.io, create a new app pointing at the repo and the
